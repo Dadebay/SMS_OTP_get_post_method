@@ -22,8 +22,6 @@ class HomeController extends GetxController {
     if (!exists) {
       data.add({"phone": phone, "message": message, "status": status, 'date': DateTime.now().toString()});
       storage.write('data', jsonEncode(data));
-    } else {
-      print("This phone and message pair already exists.");
     }
   }
 

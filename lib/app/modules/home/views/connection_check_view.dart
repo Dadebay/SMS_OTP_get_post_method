@@ -15,10 +15,10 @@ class ConnectionCheckView extends StatefulWidget {
   const ConnectionCheckView({super.key});
 
   @override
-  _ConnectionCheckViewState createState() => _ConnectionCheckViewState();
+  State<ConnectionCheckView> createState() => _ConnectionCheckViewState();
 }
 
-class _ConnectionCheckViewState extends State {
+class _ConnectionCheckViewState extends State<ConnectionCheckView> {
   @override
   void initState() {
     super.initState();
@@ -26,7 +26,7 @@ class _ConnectionCheckViewState extends State {
     homeController.findAllNumbersAndRetrieveThem();
   }
 
-  final HomeController homeController = Get.put(HomeController());
+  final HomeController homeController = Get.isRegistered<HomeController>() ? Get.find<HomeController>() : Get.put(HomeController());
 
   GetStorage storage = GetStorage();
   void checkConnection() async {
@@ -34,6 +34,9 @@ class _ConnectionCheckViewState extends State {
       final result = await InternetAddress.lookup('google.com');
       if (result.isNotEmpty && result.first.rawAddress.isNotEmpty) {
         await Future.delayed(const Duration(seconds: 4), () {
+          if (!mounted) {
+            return;
+          }
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
               builder: (BuildContext context) {

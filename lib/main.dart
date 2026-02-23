@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:sms_otp/app/constants/constants.dart';
+import 'package:sms_otp/app/data/app_settings_service.dart';
 import 'package:sms_otp/app/data/notification_service.dart';
 import 'package:sms_otp/app/modules/home/views/connection_check_view.dart';
 import 'package:sms_otp/app/utils.dart';
@@ -11,6 +12,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await GetStorage.init();
+  await Get.putAsync<AppSettingsService>(() async => AppSettingsService().init(), permanent: true);
   WakelockPlus.enable();
   await FCMConfig().requestPermission();
   await FCMConfig().initAwesomeNotification();
@@ -45,7 +47,7 @@ class _MyAppState extends State<MyApp> {
             titleTextStyle: TextStyle(color: Colors.black, fontFamily: gilroySemiBold, fontSize: 20),
             elevation: 0,
           ),
-          bottomSheetTheme: BottomSheetThemeData(backgroundColor: Colors.transparent.withOpacity(0)),
+          bottomSheetTheme: const BottomSheetThemeData(backgroundColor: Colors.transparent),
           visualDensity: VisualDensity.adaptivePlatformDensity,
         ),
         fallbackLocale: const Locale('tm'),

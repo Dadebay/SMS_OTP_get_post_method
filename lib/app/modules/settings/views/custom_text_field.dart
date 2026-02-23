@@ -8,11 +8,17 @@ import 'package:sms_otp/app/constants/constants.dart';
 class CustomTextField extends StatelessWidget {
   final String labelName;
   final TextEditingController controller;
+  final int maxLines;
+  final String? Function(String?)? validator;
+  final TextInputType keyboardType;
 
   const CustomTextField({
     super.key,
     required this.labelName,
     required this.controller,
+    this.maxLines = 1,
+    this.validator,
+    this.keyboardType = TextInputType.text,
   });
   @override
   Widget build(BuildContext context) {
@@ -22,13 +28,15 @@ class CustomTextField extends StatelessWidget {
         style: const TextStyle(color: Colors.white, fontFamily: gilroyMedium),
         cursorColor: Colors.white,
         controller: controller,
-        validator: (value) {
-          if (value!.isEmpty) {
-            return 'errorEmpty'.tr;
-          }
-          return null;
-        },
-        maxLines: 3,
+        keyboardType: keyboardType,
+        validator: validator ??
+            (value) {
+              if (value!.isEmpty) {
+                return 'errorEmpty'.tr;
+              }
+              return null;
+            },
+        maxLines: maxLines,
         inputFormatters: [
           LengthLimitingTextInputFormatter(labelName == 'clientNumber' ? 8 : 300),
         ],

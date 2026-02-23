@@ -23,32 +23,22 @@ if (flutterVersionName == null) {
 }
 
 android {
-     compileSdkVersion 34
-     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
-    }
-    configurations.all {
-        resolutionStrategy {
-            force 'androidx.appcompat:appcompat:1.6.1'
-        }
+    namespace = "com.example.sms_otp"
+    compileSdkVersion 36
+   compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = "17"
     }
 
-    sourceSets {
-        main.java.srcDirs += 'src/main/kotlin'
-    }
-   lintOptions {
-        disable 'InvalidPackage'
-        checkReleaseBuilds false //<- add this line
-    }
     defaultConfig {
         applicationId = "com.example.sms_otp"
         minSdk = 24
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 36
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
         multiDexEnabled true
@@ -64,4 +54,8 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.5"
 }

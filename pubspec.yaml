@@ -6,23 +6,23 @@ environment:
   sdk: ">=3.3.0 <4.0.0"
 
 dependencies:
-  cupertino_icons: ^1.0.6
-  wakelock_plus: ^1.2.5
-  get_storage: any
-  permission_handler: ^11.3.1
-  restart_app: ^1.2.1
-  iconly: any
-  awesome_notifications: any
-  lottie:
+  cupertino_icons: ^1.0.8
+  wakelock_plus: ^1.4.0
+  get_storage: ^2.1.1
+  permission_handler: ^12.0.1
+  # restart_app: ^1.3.2
+  iconly: ^1.0.1
+  awesome_notifications: ^0.10.0
+  lottie: ^3.3.1
   background_sms: ^0.0.4
-  get: 4.6.6
+  http: ^1.6.0
+  get: ^4.7.3
   flutter:
     sdk: flutter
 
-dev_dependencies:
-  flutter_lints: ^3.0.0
-  flutter_test:
-    sdk: flutter
+
+
+
 
 flutter:
   assets:

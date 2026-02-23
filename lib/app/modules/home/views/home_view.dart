@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sms_otp/app/constants/constants.dart';
+import 'package:sms_otp/app/data/app_settings_service.dart';
 import 'package:sms_otp/app/data/get_otp_model.dart';
 import 'package:sms_otp/app/data/notification_service.dart';
 import 'package:sms_otp/app/modules/home/controllers/home_controller.dart';
+import 'package:sms_otp/app/modules/settings/views/settings_view.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 class HomeView extends StatefulWidget {
@@ -19,22 +21,35 @@ class HomeView extends StatefulWidget {
 
 class _HomeViewState extends State<HomeView> {
   String? errorTitle;
-  final HomeController homeController = Get.put(HomeController());
+  final HomeController homeController = Get.isRegistered<HomeController>() ? Get.find<HomeController>() : Get.put(HomeController());
+  late final AppSettingsService settingsService;
   Timer? _timer;
-  int _interval = 60;
+  int _interval = AppSettingsService.defaultFetchIntervalSeconds;
+  Worker? _intervalWorker;
 
   @override
   void initState() {
     super.initState();
+    settingsService = Get.find<AppSettingsService>();
+    _interval = settingsService.fetchIntervalSeconds.value;
     WakelockPlus.enable();
     getPermission();
     fetchMessagesPeriodically();
+
+    _intervalWorker = ever<int>(settingsService.fetchIntervalSeconds, (int newValue) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _interval = newValue;
+      });
+      fetchMessagesPeriodically();
+    });
   }
 
   void fetchMessagesPeriodically() {
     _timer?.cancel();
     _timer = Timer.periodic(Duration(seconds: _interval), (timer) async {
-      print("_____________________________________________________________________________________________");
       try {
         await OtpMessageSendService().getMessages();
       } catch (e) {
@@ -47,6 +62,7 @@ class _HomeViewState extends State<HomeView> {
   void dispose() {
     WakelockPlus.disable();
     _timer?.cancel();
+    _intervalWorker?.dispose();
     super.dispose();
   }
 
@@ -58,17 +74,11 @@ class _HomeViewState extends State<HomeView> {
     }
   }
 
-  Future<bool> _isPermissionGranted() async {
-    try {
-      return await Permission.sms.status.isGranted;
-    } catch (e) {
-      await FCMConfig().sendNotification(body: "Error checking SMS permission status: $e", title: "Permission Status Error");
-      return false;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final Color timerDropdownBackground = isDarkMode ? Colors.grey.shade900 : Colors.white;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -91,24 +101,46 @@ class _HomeViewState extends State<HomeView> {
               color: Colors.white,
             ),
           ),
-          DropdownButtonHideUnderline(
-            child: DropdownButton<int>(
-              value: _interval,
-              items: <int>[30, 60, 120].map((int value) {
-                return DropdownMenuItem<int>(
-                  value: value,
-                  child: Text(
-                    '$value seconds',
-                    style: TextStyle(color: value == _interval ? Colors.white : Colors.black, fontFamily: gilroyBold),
-                  ),
-                );
-              }).toList(),
-              onChanged: (newValue) {
-                setState(() {
-                  _interval = newValue!;
-                  fetchMessagesPeriodically();
-                });
-              },
+          IconButton(
+            onPressed: () async {
+              await Get.to(() => const SettingsView());
+            },
+            icon: const Icon(
+              Icons.settings,
+              color: Colors.white,
+            ),
+          ),
+          Theme(
+            data: Theme.of(context).copyWith(
+              canvasColor: timerDropdownBackground,
+              highlightColor: Colors.transparent,
+              splashColor: Colors.transparent,
+              hoverColor: Colors.transparent,
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<int>(
+                value: _interval,
+                dropdownColor: Colors.black,
+                iconDisabledColor: Colors.brown,
+                focusColor: Colors.transparent,
+                // iconEnabledColor: Colors.red,
+                style: TextStyle(color: Colors.white, fontFamily: gilroyBold),
+                items: <int>[15, 30, 45, 60, 120].map((int value) {
+                  return DropdownMenuItem<int>(
+                    value: value,
+                    child: Text(
+                      '$value sec',
+                      style: TextStyle(color: Colors.white, fontFamily: gilroyBold),
+                    ),
+                  );
+                }).toList(),
+                onChanged: (newValue) async {
+                  if (newValue == null) {
+                    return;
+                  }
+                  await settingsService.updateFetchInterval(newValue);
+                },
+              ),
             ),
           ),
         ],
@@ -118,26 +150,35 @@ class _HomeViewState extends State<HomeView> {
           itemCount: homeController.data.length,
           itemBuilder: (BuildContext context, int index) {
             final message = homeController.data[index];
-            return GestureDetector(
-              onTap: () async {
-                String phoneNumber = message['phone'];
-                if (!phoneNumber.startsWith('+')) {
-                  phoneNumber = '+993$phoneNumber';
-                }
 
-                try {
-                  SmsStatus result = await BackgroundSms.sendMessage(phoneNumber: phoneNumber, message: message['message']);
-                  if (result == SmsStatus.sent) {
-                    await OtpMessageSendService().sendData(phone: message['phone'], otp: message['message']);
-                  } else {
-                    homeController.changeStatus(status: 'failed', message: message['message']);
-                    await FCMConfig().sendNotification(body: "Failed to send SMS to $phoneNumber with result: $result", title: "SMS GIDENOK");
-                  }
-                } catch (e) {
+            // SMS gönderme fonksiyonu
+            Future<void> sendSmsToContact() async {
+              String phoneNumber = message['phone'];
+              if (!phoneNumber.startsWith('+')) {
+                phoneNumber = '+993$phoneNumber';
+              }
+
+              try {
+                print('Sending SMS to: $phoneNumber, message: ${message['message']}'); // Debug
+                SmsStatus result = await BackgroundSms.sendMessage(phoneNumber: phoneNumber, message: message['message']);
+                print('SMS send result: $result'); // Debug
+
+                if (result == SmsStatus.sent) {
+                  homeController.changeStatus(status: 'send', message: message['message']);
+                  await OtpMessageSendService().sendData(phone: message['phone'], otp: message['message']);
+                  print('SMS sent successfully to $phoneNumber'); // Debug
+                } else {
                   homeController.changeStatus(status: 'failed', message: message['message']);
-                  await FCMConfig().sendNotification(body: "Error sending SMS to $phoneNumber: $e", title: "SMS GIDENOK");
+                  await FCMConfig().sendNotification(body: "Failed to send SMS to $phoneNumber with result: $result", title: "SMS GIDENOK");
                 }
-              },
+              } catch (e) {
+                homeController.changeStatus(status: 'failed', message: message['message']);
+                await FCMConfig().sendNotification(body: "Error sending SMS to $phoneNumber: $e", title: "SMS GIDENOK");
+              }
+            }
+
+            return GestureDetector(
+              onTap: sendSmsToContact,
               child: Container(
                 color: Colors.black,
                 padding: const EdgeInsets.all(8.0),
@@ -168,14 +209,31 @@ class _HomeViewState extends State<HomeView> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 8),
                     Text(
-                      "OTP: ${message['message']}",
+                      "Message: ${message['message']}",
                       style: const TextStyle(color: Colors.white, fontFamily: 'GilroyMedium', fontSize: 14),
                     ),
+                    const SizedBox(height: 4),
                     Text(
-                      "Date: ${message['date'].toString().substring(0, 19)}", // Date yerine uygun bir alan ekleyin
-                      style: const TextStyle(color: Colors.grey, fontFamily: 'GilroyRegular', fontSize: 14),
+                      "Date: ${message['date'].toString().substring(0, 19)}",
+                      style: const TextStyle(color: Colors.grey, fontFamily: 'GilroyRegular', fontSize: 12),
                     ),
+                    if (message['status'] == 'failed')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: ElevatedButton.icon(
+                          onPressed: sendSmsToContact,
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: const Text('Retry', style: TextStyle(fontFamily: gilroyBold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            minimumSize: const Size(80, 32),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
