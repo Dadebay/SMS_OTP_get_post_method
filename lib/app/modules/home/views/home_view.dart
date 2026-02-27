@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:background_sms/background_sms.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:sms_otp/app/data/native_sms_sender.dart';
 import 'package:sms_otp/app/constants/constants.dart';
 import 'package:sms_otp/app/data/app_settings_service.dart';
 import 'package:sms_otp/app/data/get_otp_model.dart';
@@ -68,10 +68,64 @@ class _HomeViewState extends State<HomeView> {
 
   Future<void> getPermission() async {
     try {
-      await [Permission.sms].request();
+      var smsStatus = await Permission.sms.status;
+
+      if (smsStatus.isGranted) {
+        return;
+      }
+
+      // Request SMS permission
+      smsStatus = await Permission.sms.request();
+
+      if (smsStatus.isGranted) {
+        return;
+      }
+
+      // If permanently denied, show dialog to open settings
+      if (smsStatus.isPermanentlyDenied) {
+        _showPermissionDialog();
+        return;
+      }
+
+      // Also request phone permission (some devices require it)
+      await Permission.phone.request();
     } catch (e) {
       await FCMConfig().sendNotification(body: "Error requesting SMS permission: $e", title: "Permission Error");
     }
+  }
+
+  void _showPermissionDialog() {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey.shade900,
+        title: const Text(
+          'SMS İzni Gerekli',
+          style: TextStyle(color: Colors.white, fontFamily: 'GilroySemiBold'),
+        ),
+        content: const Text(
+          'Bu uygulama SMS göndermek için izne ihtiyaç duyuyor. '
+          'Lütfen Ayarlar\'dan SMS iznini verin.',
+          style: TextStyle(color: Colors.white70, fontFamily: 'GilroyMedium'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('İptal', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              openAppSettings();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+            child: const Text('Ayarlara Git', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -155,21 +209,29 @@ class _HomeViewState extends State<HomeView> {
             Future<void> sendSmsToContact() async {
               String phoneNumber = message['phone'];
               if (!phoneNumber.startsWith('+')) {
-                phoneNumber = '+993$phoneNumber';
+                phoneNumber = '+998$phoneNumber';
               }
 
-              try {
-                print('Sending SMS to: $phoneNumber, message: ${message['message']}'); // Debug
-                SmsStatus result = await BackgroundSms.sendMessage(phoneNumber: phoneNumber, message: message['message']);
-                print('SMS send result: $result'); // Debug
+              // Apply message template
+              final String formattedMessage = settingsService.formatMessage(message['message']);
 
-                if (result == SmsStatus.sent) {
+              try {
+                print('Sending SMS to: $phoneNumber, message: $formattedMessage'); // Debug
+                final result = await NativeSmsSender.sendSms(
+                  phoneNumber: phoneNumber,
+                  message: formattedMessage,
+                  simSlot: settingsService.simSlot.value,
+                );
+                final bool success = result['success'] == true;
+                print('SMS send result: $success, error: ${result['error']}'); // Debug
+
+                if (success) {
                   homeController.changeStatus(status: 'send', message: message['message']);
                   await OtpMessageSendService().sendData(phone: message['phone'], otp: message['message']);
                   print('SMS sent successfully to $phoneNumber'); // Debug
                 } else {
                   homeController.changeStatus(status: 'failed', message: message['message']);
-                  await FCMConfig().sendNotification(body: "Failed to send SMS to $phoneNumber with result: $result", title: "SMS GIDENOK");
+                  await FCMConfig().sendNotification(body: "Failed to send SMS to $phoneNumber: ${result['error']}", title: "SMS GIDENOK");
                 }
               } catch (e) {
                 homeController.changeStatus(status: 'failed', message: message['message']);

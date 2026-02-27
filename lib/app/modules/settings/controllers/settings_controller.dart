@@ -6,7 +6,10 @@ class SettingsController extends GetxController {
   final GlobalKey<FormState> formKey = GlobalKey<FormState>();
   final TextEditingController getSmsUrlController = TextEditingController();
   final TextEditingController sendSmsUrlController = TextEditingController();
+  final TextEditingController messageTemplateController = TextEditingController();
   final RxInt selectedInterval = AppSettingsService.defaultFetchIntervalSeconds.obs;
+  final RxBool useTemplate = AppSettingsService.defaultUseTemplate.obs;
+  final RxInt selectedSimSlot = AppSettingsService.defaultSimSlot.obs;
 
   late final AppSettingsService _settingsService;
 
@@ -19,6 +22,9 @@ class SettingsController extends GetxController {
     getSmsUrlController.text = _settingsService.getSmsUrl.value;
     sendSmsUrlController.text = _settingsService.sendSmsUrl.value;
     selectedInterval.value = _settingsService.fetchIntervalSeconds.value;
+    messageTemplateController.text = _settingsService.messageTemplate.value;
+    useTemplate.value = _settingsService.useTemplate.value;
+    selectedSimSlot.value = _settingsService.simSlot.value;
   }
 
   String? validateUrl(String? value) {
@@ -52,6 +58,9 @@ class SettingsController extends GetxController {
       await _settingsService.updateGetSmsUrl(getSmsUrlController.text);
       await _settingsService.updateSendSmsUrl(sendSmsUrlController.text);
       await _settingsService.updateFetchInterval(selectedInterval.value);
+      await _settingsService.updateMessageTemplate(messageTemplateController.text);
+      await _settingsService.updateUseTemplate(useTemplate.value);
+      await _settingsService.updateSimSlot(selectedSimSlot.value);
       print('Settings saved successfully'); // Debug
       return true;
     } catch (e) {
@@ -64,6 +73,7 @@ class SettingsController extends GetxController {
   void onClose() {
     getSmsUrlController.dispose();
     sendSmsUrlController.dispose();
+    messageTemplateController.dispose();
     super.onClose();
   }
 }

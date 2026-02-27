@@ -42,12 +42,21 @@ android {
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
         multiDexEnabled true
-
     }
 
     buildTypes {
         release {
             signingConfig = signingConfigs.debug
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+            keepDebugSymbols += ['**/*.so']
+        }
+        resources {
+            excludes += ['/META-INF/{AL2.0,LGPL2.1}']
         }
     }
 }

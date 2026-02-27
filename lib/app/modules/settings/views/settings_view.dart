@@ -101,6 +101,76 @@ class _SettingsViewState extends State<SettingsView> {
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
+              // SIM Slot Selector
+              Container(
+                padding: const EdgeInsets.only(top: 0, left: 20, right: 20),
+                child: Obx(
+                  () => DropdownButtonFormField<int>(
+                    value: settingsController.selectedSimSlot.value,
+                    dropdownColor: Colors.black,
+                    style: const TextStyle(color: Colors.white, fontFamily: gilroyMedium),
+                    decoration: InputDecoration(
+                      labelText: 'SIM Kart (SMS ibermek üçin)',
+                      labelStyle: TextStyle(color: Colors.grey.shade400, fontFamily: gilroyMedium),
+                      border: const OutlineInputBorder(
+                        borderRadius: borderRadius20,
+                        borderSide: BorderSide(color: Colors.grey, width: 2),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: borderRadius20,
+                        borderSide: BorderSide(color: Colors.grey.shade200, width: 2),
+                      ),
+                      focusedBorder: const OutlineInputBorder(
+                        borderRadius: borderRadius20,
+                        borderSide: BorderSide(color: kPrimaryColor, width: 2),
+                      ),
+                    ),
+                    items: const [
+                      DropdownMenuItem<int>(value: 0, child: Text('SIM 1 (Slot 1)')),
+                      DropdownMenuItem<int>(value: 1, child: Text('SIM 2 (Slot 2)')),
+                    ],
+                    onChanged: (int? newValue) {
+                      if (newValue == null) return;
+                      settingsController.selectedSimSlot.value = newValue;
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Message Template Toggle
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Obx(
+                  () => SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                      'SMS shablon ishlatish',
+                      style: TextStyle(color: Colors.white, fontFamily: gilroySemiBold, fontSize: 16),
+                    ),
+                    subtitle: Text(
+                      settingsController.useTemplate.value ? 'Shablon: kod {code} bilen almashtyrylýar' : 'Diňe kody iberer',
+                      style: TextStyle(color: Colors.grey.shade400, fontFamily: gilroyMedium, fontSize: 12),
+                    ),
+                    activeColor: kPrimaryColor,
+                    value: settingsController.useTemplate.value,
+                    onChanged: (bool value) {
+                      settingsController.useTemplate.value = value;
+                    },
+                  ),
+                ),
+              ),
+              // Message Template Field
+              Obx(
+                () => settingsController.useTemplate.value
+                    ? CustomTextField(
+                        labelName: 'SMS Shablon ({code} = kod)',
+                        controller: settingsController.messageTemplateController,
+                        maxLines: 3,
+                        keyboardType: TextInputType.text,
+                      )
+                    : const SizedBox.shrink(),
+              ),
               const SizedBox(height: 20),
               AgreeButton(
                 onTap: () async {
