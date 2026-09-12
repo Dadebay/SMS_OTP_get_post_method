@@ -23,10 +23,13 @@ if (flutterVersionName == null) {
 }
 
 android {
-     compileSdkVersion 34
-     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+    namespace "com.example.sms_otp"
+    compileSdk 36
+    ndkVersion "28.2.13676358"
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
     configurations.all {
         resolutionStrategy {
@@ -35,20 +38,20 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = '17'
     }
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
     }
-   lintOptions {
+    lint {
         disable 'InvalidPackage'
-        checkReleaseBuilds false //<- add this line
+        checkReleaseBuilds false
     }
     defaultConfig {
         applicationId = "com.example.sms_otp"
         minSdk = 24
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 36
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
         multiDexEnabled true

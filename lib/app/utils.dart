@@ -3,8 +3,14 @@
 import 'package:get/get.dart';
 
 class MyTranslations extends Translations {
+  // Sözlük ~1500 girdilik; getter her çağrıldığında haritayı yeniden kurmak
+  // yerine bir kez oluşturup saklıyoruz.
+  static final Map<String, Map<String, String>> _keys = _buildKeys();
+
   @override
-  Map<String, Map<String, String>> get keys => {
+  Map<String, Map<String, String>> get keys => _keys;
+
+  static Map<String, Map<String, String>> _buildKeys() => {
         'tm': {
           'select_language': 'Dil saýlaň',
           'selectMoreProducts': 'Bir ýa-da birnäçe önümi saýlamagyňyzy haýyş edýäris',

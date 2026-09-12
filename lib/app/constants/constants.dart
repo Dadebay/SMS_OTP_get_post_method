@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-const String serverURL = 'http://216.250.12.49:8000';
+const String serverURL = 'https://a7-tagam.com.tm/api/v1';
 
 const Color kPrimaryColor = Color(0xff6366f1);
 const Color kBlackColor = Color(0xff2b2b2b);
@@ -35,28 +35,45 @@ const String loadingLottie = 'assets/lottie/loading.json';
 const String noDataLottie = 'assets/lottie/noData.json';
 /////////////////////////////////////////////////
 
-SnackbarController showSnackBar(String title, String subtitle, Color color) {
-  if (SnackbarController.isSnackbarBeingShown) {
-    SnackbarController.cancelAllSnackbars();
-  }
-  return Get.snackbar(
-    title,
-    subtitle,
-    snackStyle: SnackStyle.FLOATING,
-    titleText: title == ''
-        ? const SizedBox.shrink()
-        : Text(
-            title.tr,
-            style: const TextStyle(fontFamily: gilroySemiBold, fontSize: 18, color: Colors.white),
-          ),
-    messageText: Text(
-      subtitle.tr,
-      style: const TextStyle(fontFamily: gilroyRegular, fontSize: 16, color: Colors.white),
-    ),
-    snackPosition: SnackPosition.TOP,
-    backgroundColor: color,
-    borderRadius: 20.0,
-    duration: const Duration(milliseconds: 800),
-    margin: const EdgeInsets.all(8),
-  );
+// Plain ScaffoldMessenger, not Get.snackbar: GetX 4.6.6's snackbar overlay
+// resolution (Get.overlayContext!) crashes with a null-check error on recent
+// Flutter versions, so every snackbar in the app goes through here instead.
+void showSnackBar(
+  BuildContext context,
+  String title,
+  String subtitle,
+  Color color,
+) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: const RoundedRectangleBorder(borderRadius: borderRadius20),
+        margin: const EdgeInsets.all(8),
+        duration: const Duration(milliseconds: 1800),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (title.isNotEmpty)
+              Text(
+                title.tr,
+                style: const TextStyle(
+                    fontFamily: gilroySemiBold,
+                    fontSize: 16,
+                    color: Colors.white),
+              ),
+            Text(
+              subtitle.tr,
+              style: const TextStyle(
+                  fontFamily: gilroyRegular,
+                  fontSize: 14,
+                  color: Colors.white),
+            ),
+          ],
+        ),
+      ),
+    );
 }

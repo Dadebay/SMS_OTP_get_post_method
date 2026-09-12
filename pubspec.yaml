@@ -10,11 +10,14 @@ dependencies:
   wakelock_plus: ^1.2.5
   get_storage: any
   permission_handler: ^11.3.1
-  restart_app: ^1.2.1
+  restart_app: ^1.8.3
   iconly: any
+  hugeicons: ^1.1.7
   awesome_notifications: any
   lottie:
-  background_sms: ^0.0.4
+  background_sms:
+    path: third_party/background_sms
+  http: ^1.2.2
   get: 4.6.6
   flutter:
     sdk: flutter
