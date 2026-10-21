@@ -4,7 +4,4 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
-    <!-- Local API tests use a LAN http:// address. This debug-only override is
-         intentionally excluded from release builds, which should use HTTPS. -->
-    <application android:usesCleartextTraffic="true" />
 </manifest>

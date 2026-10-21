@@ -10,7 +10,6 @@ dependencies:
   wakelock_plus: ^1.2.5
   get_storage: any
   permission_handler: ^11.3.1
-  restart_app: ^1.8.3
   iconly: any
   hugeicons: ^1.1.7
   awesome_notifications: any
@@ -21,6 +20,8 @@ dependencies:
   get: 4.6.6
   flutter:
     sdk: flutter
+  flutter_secure_storage: ^11.2.0
+  flutter_foreground_task: ^11.0.3
 
 dev_dependencies:
   flutter_lints: ^3.0.0

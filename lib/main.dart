@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:sms_otp/app/constants/constants.dart';
 import 'package:sms_otp/app/data/notification_service.dart';
 import 'package:sms_otp/app/data/screen_wake_service.dart';
@@ -11,6 +12,7 @@ import 'package:sms_otp/app/utils.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await GetStorage.init();
+  FlutterForegroundTask.initCommunicationPort();
   await FCMConfig().requestPermission();
   await FCMConfig().initAwesomeNotification();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp, DeviceOrientation.portraitDown]);

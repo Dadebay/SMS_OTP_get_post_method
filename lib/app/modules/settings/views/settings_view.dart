@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:background_sms/background_sms.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:sms_otp/app/constants/constants.dart';
 import 'package:sms_otp/app/data/get_otp_model.dart';
@@ -20,32 +23,81 @@ class _SettingsViewState extends State<SettingsView> {
       storage.read<String>(SmsGatewayService.apiBaseUrlKey),
     ),
   );
+  final token = TextEditingController();
+  List<SmsSubscription> subscriptions = const [];
+  int? selectedSubscriptionId;
   late final HomeController home = Get.find<HomeController>();
   bool isTesting = false;
 
-  bool get _isConfigured => url.text.trim().isNotEmpty;
+  bool get _isConfigured =>
+      storage.read<bool>(SmsGatewayService.tokenConfiguredKey) == true ||
+      token.text.trim().isNotEmpty;
 
   @override
   void initState() {
     super.initState();
     url.addListener(() => setState(() {}));
+    token.addListener(() => setState(() {}));
+    selectedSubscriptionId =
+        storage.read<int>(SmsGatewayService.subscriptionIdKey);
+    _loadSubscriptions();
   }
 
   @override
   void dispose() {
     url.dispose();
+    token.dispose();
     super.dispose();
   }
 
   Future<bool> _saveAddress() async {
     final baseUrl = url.text.trim().replaceAll(RegExp(r'/+$'), '');
-    if (!baseUrl.startsWith('https://') && !baseUrl.startsWith('http://')) {
+    if (!baseUrl.startsWith('https://')) {
       showSnackBar(context, 'Geçersiz adres',
-          'API adresi http:// veya https:// ile başlamalıdır.', Colors.red);
+          'Gateway için HTTPS adresi gerekli.', Colors.red);
       return false;
     }
+    if (token.text.trim().isNotEmpty) {
+      await const GatewaySecretStore().writeToken(token.text.trim());
+      await storage.write(SmsGatewayService.tokenConfiguredKey, true);
+      await storage.write(SmsGatewayService.tokenRejectedKey, false);
+      token.clear();
+    }
+    if (storage.read<bool>(SmsGatewayService.tokenConfiguredKey) != true) {
+      if (!mounted) return false;
+      showSnackBar(context, 'Token gerekli',
+          'Admin panelindeki cihaz tokenını girin.', Colors.red);
+      return false;
+    }
+    if (selectedSubscriptionId == null) {
+      if (!mounted) return false;
+      showSnackBar(context, 'SIM gerekli', 'SMS gönderecek SIM kartını seçin.',
+          Colors.red);
+      return false;
+    }
+    await storage.write(
+        SmsGatewayService.subscriptionIdKey, selectedSubscriptionId);
     await storage.write(SmsGatewayService.apiBaseUrlKey, baseUrl);
     return true;
+  }
+
+  Future<void> _loadSubscriptions() async {
+    await Permission.phone.request();
+    try {
+      final found = await BackgroundSms.getSubscriptions();
+      if (!mounted) return;
+      setState(() {
+        subscriptions = found;
+        if (!found.any((sim) => sim.id == selectedSubscriptionId)) {
+          selectedSubscriptionId = found.length == 1 ? found.first.id : null;
+        }
+      });
+    } catch (_) {
+      if (mounted) {
+        showSnackBar(context, 'SIM okunamadı',
+            'Telefon iznini ve SIM kartını kontrol edin.', Colors.red);
+      }
+    }
   }
 
   Future<void> _testConnection() async {
@@ -55,13 +107,12 @@ class _SettingsViewState extends State<SettingsView> {
     try {
       await gateway.heartbeat();
       if (mounted) {
-        showSnackBar(context, 'Bağlantı başarılı',
-            'Gateway bağlantısı hazır.', const Color(0xff157a50));
+        showSnackBar(context, 'Bağlantı başarılı', 'Gateway bağlantısı hazır.',
+            const Color(0xff157a50));
       }
     } on GatewayException catch (error) {
       if (mounted) {
-        showSnackBar(
-            context, 'Bağlantı kurulamadı', error.message, Colors.red);
+        showSnackBar(context, 'Bağlantı kurulamadı', error.message, Colors.red);
       }
     } catch (_) {
       if (mounted) {
@@ -76,7 +127,11 @@ class _SettingsViewState extends State<SettingsView> {
 
   Future<void> _saveAndStart() async {
     if (!await _saveAddress()) return;
-    home.stop();
+    await Permission.sms.request();
+    if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
+      await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+    }
+    await home.stop();
     await home.start();
     if (mounted) Get.back();
   }
@@ -94,13 +149,10 @@ class _SettingsViewState extends State<SettingsView> {
         body: ListView(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
           children: [
-            _connectionStatusBanner(),
-            const SizedBox(height: 22),
             _sectionCard(
               icon: HugeIcons.strokeRoundedServerStack01,
               title: 'Backend bağlantısı',
-              subtitle:
-                  'SMS Gateway\'in görev almak için ulaşacağı yerel/uzak API adresi.',
+              subtitle: 'Aykitap OTP SMS API adresi ve bu cihazın tokenı.',
               child: Column(children: [
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -117,11 +169,47 @@ class _SettingsViewState extends State<SettingsView> {
                           icon: HugeIcons.strokeRoundedLink01,
                           color: Color(0xff496598)),
                       labelText: 'API adresi',
-                      hintText: 'https://a7-tagam.com.tm/api/v1',
+                      hintText: SmsGatewayService.defaultApiBaseUrl,
                       border: InputBorder.none,
                     ),
                   ),
                 ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: token,
+                  obscureText: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  decoration: InputDecoration(
+                    labelText: 'Cihaz tokenı',
+                    hintText: _isConfigured
+                        ? 'Mevcut token korunacak'
+                        : 'Admin panelinden alınan token',
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  key: ValueKey(selectedSubscriptionId),
+                  initialValue: subscriptions
+                          .any((sim) => sim.id == selectedSubscriptionId)
+                      ? selectedSubscriptionId
+                      : null,
+                  decoration: const InputDecoration(
+                      labelText: 'Gönderici SIM', border: OutlineInputBorder()),
+                  items: [
+                    for (final sim in subscriptions)
+                      DropdownMenuItem(
+                          value: sim.id,
+                          child: Text('SIM ${sim.slot + 1} · ${sim.name}'))
+                  ],
+                  onChanged: (value) =>
+                      setState(() => selectedSubscriptionId = value),
+                ),
+                if (subscriptions.isEmpty)
+                  TextButton(
+                      onPressed: _loadSubscriptions,
+                      child: const Text('SIM listesini yenile')),
                 const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
@@ -185,37 +273,6 @@ class _SettingsViewState extends State<SettingsView> {
           ],
         ),
       );
-
-  /// Surfaces the current connection state up front, separate from the
-  /// address input below, so it's clear at a glance whether the device is
-  /// still in local/unconfigured mode.
-  Widget _connectionStatusBanner() {
-    final configured = _isConfigured;
-    final color =
-        configured ? const Color(0xff157a50) : const Color(0xff9a7300);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-          color: color.withValues(alpha: .08),
-          borderRadius: BorderRadius.circular(18)),
-      child: Row(children: [
-        Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            configured
-                ? 'Bağlantı yapılandırıldı'
-                : 'Yerel mod — bağlantı henüz ayarlanmadı',
-            style: TextStyle(
-                color: color, fontSize: 13.5, fontWeight: FontWeight.w700),
-          ),
-        ),
-      ]),
-    );
-  }
 
   Widget _sectionCard({
     required List<List<dynamic>> icon,
