@@ -15,8 +15,18 @@ class HomeView extends StatefulWidget {
   State<HomeView> createState() => _HomeViewState();
 }
 
+/// Liste içinde bir gün ayracı. Kayıtlarla aynı builder'dan çizildiği için
+/// tek bir sliver hâlâ yalnızca ekranda görüneni kuruyor.
+class _DaySeparator {
+  const _DaySeparator(this.key);
+  final String key;
+}
+
 class _HomeViewState extends State<HomeView> {
   final controller = Get.put(HomeController());
+
+  /// Gün özetinde yalnızca bugün/dün mü yoksa tüm günler mi görünecek.
+  bool _showAllDays = false;
 
   @override
   void initState() {
@@ -51,7 +61,7 @@ class _HomeViewState extends State<HomeView> {
                       _header(),
                       Obx(_quickStats),
                       Obx(_eventsHeader),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                     ]),
                   ),
                 ),
@@ -64,11 +74,15 @@ class _HomeViewState extends State<HomeView> {
                     if (visible.isEmpty) {
                       return SliverToBoxAdapter(child: _emptyState());
                     }
-                    // `ListView(children: [...])` tüm kartları bir anda
-                    // kuruyordu; builder yalnızca ekranda görüneni kurar.
+                    final items = _groupByDay(visible);
                     return SliverList.builder(
-                      itemCount: visible.length,
-                      itemBuilder: (_, index) => _eventCard(visible[index]),
+                      itemCount: items.length,
+                      itemBuilder: (_, index) {
+                        final item = items[index];
+                        return item is _DaySeparator
+                            ? _daySeparator(item.key, first: index == 0)
+                            : _eventCard(item as Map<String, String>);
+                      },
                     );
                   }),
                 ),
@@ -77,6 +91,44 @@ class _HomeViewState extends State<HomeView> {
           ),
         ),
       );
+
+  /// Kayıtlar zaten yeniden eskiye sıralı; gün değiştikçe araya bir ayraç
+  /// koyuyoruz.
+  List<Object> _groupByDay(List<Map<String, String>> events) {
+    final items = <Object>[];
+    String? current;
+    for (final event in events) {
+      final day = _dayOf(event);
+      if (day != current) {
+        current = day;
+        items.add(_DaySeparator(day));
+      }
+      items.add(event);
+    }
+    return items;
+  }
+
+  static String _dayOf(Map<String, String> event) {
+    final time = event['time'];
+    if (time != null && time.length >= 10) return time.substring(0, 10);
+    return HomeController.dayKey(DateTime.now());
+  }
+
+  static String _timeOf(Map<String, String> event) {
+    final time = event['time'] ?? '';
+    return time.length >= 19 ? time.substring(11) : time;
+  }
+
+  static String _dayLabel(String key) {
+    final now = DateTime.now();
+    if (key == HomeController.dayKey(now)) return 'Bugün';
+    if (key == HomeController.dayKey(now.subtract(const Duration(days: 1)))) {
+      return 'Dün';
+    }
+    final date = DateTime.parse(key);
+    return '${date.day.toString().padLeft(2, '0')}.'
+        '${date.month.toString().padLeft(2, '0')}.${date.year}';
+  }
 
   Widget _header() => Row(
         children: [
@@ -94,7 +146,7 @@ class _HomeViewState extends State<HomeView> {
   Widget _eventsHeader() => Row(
         children: [
           const Expanded(
-            child: Text('Son işlemler', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xff17233b))),
+            child: Text('Son işlemler', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xff17233b))),
           ),
           if (controller.events.isNotEmpty)
             TextButton.icon(
@@ -109,7 +161,7 @@ class _HomeViewState extends State<HomeView> {
   void _confirmClearEvents() {
     Get.dialog(AlertDialog(
       title: const Text('Tüm işlemler silinsin mi?'),
-      content: const Text('Kaydedilen tüm SMS işlem geçmişi cihazdan kalıcı olarak silinecek.'),
+      content: const Text('Kaydedilen tüm SMS işlem geçmişi ve sayaçlar cihazdan kalıcı olarak silinecek.'),
       actions: [
         TextButton(onPressed: Get.back, child: const Text('Vazgeç')),
         TextButton(
@@ -168,30 +220,101 @@ class _HomeViewState extends State<HomeView> {
     );
   }
 
+  /// Üstte iki küçük toplam kartı, altında gün gün dökümü.
   Widget _quickStats() {
-    // Sayaçlar controller'da liste değiştikçe bir kez hesaplanıyor; burada her
-    // çizimde listeyi baştan taramıyoruz.
     final sent = controller.sentCount.value;
     final failed = controller.failedCount.value;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(children: [
-        Expanded(child: _statCard('$sent', 'Gönderildi', HugeIcons.strokeRoundedSent, const Color(0xff157a50))),
-        const SizedBox(width: 10),
-        Expanded(child: _statCard('$failed', 'Başarısız', HugeIcons.strokeRoundedAlertCircle, const Color(0xffc04545))),
+      child: Column(children: [
+        Row(children: [
+          Expanded(child: _statCard('$sent', 'Gönderildi', HugeIcons.strokeRoundedSent, const Color(0xff157a50))),
+          const SizedBox(width: 8),
+          Expanded(child: _statCard('$failed', 'Başarısız', HugeIcons.strokeRoundedAlertCircle, const Color(0xffc04545))),
+        ]),
+        const SizedBox(height: 8),
+        _dailyCard(),
       ]),
     );
   }
 
-  Widget _statCard(String value, String label, List<List<dynamic>> icon, Color color, {bool compact = false}) => Container(
-        padding: const EdgeInsets.all(13),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          HugeIcon(icon: icon, size: 19, color: color),
-          const SizedBox(height: 10),
-          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: compact ? 14 : 21, fontWeight: FontWeight.w800, color: const Color(0xff1e2a44))),
-          const SizedBox(height: 2),
-          Text(label, style: const TextStyle(fontSize: 11, color: Color(0xff758097))),
+  /// Gün bazlı döküm: varsayılan olarak bugün ve dün, istenirse tüm günler.
+  Widget _dailyCard() {
+    final breakdown = controller.dailyBreakdown;
+    final todayKey = HomeController.dayKey(DateTime.now());
+    // Bugun her zaman gorunur (0 olsa bile). Yanina sabit bir "dun" satiri
+    // koymak yerine kaydi olan en yeni gunleri aliyoruz: eski gonderimler
+    // bugun/dun disinda bir tarihteyse artik 0 degil gercek sayilariyla cikiyor.
+    final rows = _showAllDays
+        ? <DayStat>[
+            if (!breakdown.any((day) => HomeController.dayKey(day.day) == todayKey))
+              controller.statForKey(todayKey),
+            ...breakdown,
+          ]
+        : <DayStat>[
+            controller.statForKey(todayKey),
+            ...breakdown
+                .where((day) => HomeController.dayKey(day.day) != todayKey)
+                .take(2),
+          ];
+    final shown = rows.map((day) => HomeController.dayKey(day.day)).toSet();
+    final hasMore =
+        breakdown.any((day) => !shown.contains(HomeController.dayKey(day.day)));
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const HugeIcon(icon: HugeIcons.strokeRoundedCalendar03, size: 15, color: Color(0xff758097)),
+          const SizedBox(width: 6),
+          const Expanded(
+            child: Text('Günlük gönderim', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xff758097))),
+          ),
+          if (hasMore)
+            GestureDetector(
+              onTap: () => setState(() => _showAllDays = !_showAllDays),
+              child: Text(_showAllDays ? 'Daha az' : 'Tüm günler',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xff2f4880))),
+            ),
+        ]),
+        const SizedBox(height: 4),
+        for (final day in rows) _dayRow(day),
+      ]),
+    );
+  }
+
+  Widget _dayRow(DayStat day) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Row(children: [
+          Expanded(
+            child: Text(_dayLabel(HomeController.dayKey(day.day)),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xff283652))),
+          ),
+          Text('${day.sent}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xff157a50))),
+          const SizedBox(width: 3),
+          const Text('gönderildi', style: TextStyle(fontSize: 11, color: Color(0xff758097))),
+          if (day.failed > 0) ...[
+            const SizedBox(width: 8),
+            Text('${day.failed}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xffc04545))),
+            const SizedBox(width: 3),
+            const Text('hata', style: TextStyle(fontSize: 11, color: Color(0xff758097))),
+          ],
+        ]),
+      );
+
+  /// Küçültülmüş toplam kartı: ikon ve sayı aynı satırda.
+  Widget _statCard(String value, String label, List<List<dynamic>> icon, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+        child: Row(children: [
+          HugeIcon(icon: icon, size: 17, color: color),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xff1e2a44))),
+              Text(label, style: const TextStyle(fontSize: 11, color: Color(0xff758097))),
+            ]),
+          ),
         ]),
       );
 
@@ -207,6 +330,26 @@ class _HomeViewState extends State<HomeView> {
         ]),
       );
 
+  /// Gün ayracı. Sayılar listeden değil kalıcı sayaçlardan geliyor: liste
+  /// kırpılsa da o günün gerçek toplamı görünür.
+  Widget _daySeparator(String key, {required bool first}) {
+    final stat = controller.statForKey(key);
+    return Padding(
+      padding: EdgeInsets.only(top: first ? 0 : 12, bottom: 7, left: 2, right: 2),
+      child: Row(children: [
+        Text(_dayLabel(key), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xff33415c))),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(color: const Color(0xffe4ebf7), borderRadius: BorderRadius.circular(9)),
+          child: Text('${stat.sent} gönderildi${stat.failed > 0 ? ' · ${stat.failed} hata' : ''}',
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xff44557c)),),
+        ),
+        const Expanded(child: Divider(indent: 10, color: Color(0xffdfe5f0))),
+      ]),
+    );
+  }
+
   Widget _eventCard(Map<String, String> event) {
     final failed = event['status'] == 'failed';
     final color = failed ? const Color(0xffc44545) : const Color(0xff148457);
@@ -218,26 +361,29 @@ class _HomeViewState extends State<HomeView> {
       onDismissed: (_) => controller.deleteEventRef(event),
       background: Container(
         alignment: Alignment.centerRight,
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        decoration: BoxDecoration(color: const Color(0xffc44545), borderRadius: BorderRadius.circular(18)),
-        child: const HugeIcon(icon: HugeIcons.strokeRoundedDelete02, color: Colors.white),
+        margin: const EdgeInsets.only(bottom: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        decoration: BoxDecoration(color: const Color(0xffc44545), borderRadius: BorderRadius.circular(14)),
+        child: const HugeIcon(icon: HugeIcons.strokeRoundedDelete02, color: Colors.white, size: 20),
       ),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18)),
+        margin: const EdgeInsets.only(bottom: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
         child: Row(children: [
           Container(
-              padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: color.withValues(alpha: .12), borderRadius: BorderRadius.circular(13)), child: HugeIcon(icon: icon, color: color)),
-          const SizedBox(width: 12),
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(color: color.withValues(alpha: .12), borderRadius: BorderRadius.circular(10)),
+            child: HugeIcon(icon: icon, color: color, size: 17),
+          ),
+          const SizedBox(width: 10),
           Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(event['phone'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xff283652))),
-            const SizedBox(height: 4),
-            Text(otp.isEmpty ? '—' : 'OTP: $otp', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: color)),
-          ])),
-          Text(event['time'] ?? '', style: const TextStyle(fontSize: 12, color: Color(0xff8490a5))),
+            child: Text(event['phone'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xff283652))),
+          ),
+          const SizedBox(width: 8),
+          Text(otp.isEmpty ? '—' : otp, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+          const SizedBox(width: 8),
+          Text(_timeOf(event), style: const TextStyle(fontSize: 11, color: Color(0xff8490a5))),
         ]),
       ),
     );

@@ -6,8 +6,20 @@ import 'package:get_storage/get_storage.dart';
 import 'package:sms_otp/app/data/get_otp_model.dart';
 import 'package:sms_otp/app/data/usage_service.dart';
 
+/// Tek bir günün gönderim özeti.
+class DayStat {
+  const DayStat({required this.day, required this.sent, required this.failed});
+
+  final DateTime day;
+  final int sent;
+  final int failed;
+
+  int get total => sent + failed;
+}
+
 class HomeController extends GetxController {
   static const _eventsKey = 'events';
+  static const _statsKey = 'event_stats';
   static const _pollingIntervalKey = 'pollingIntervalSeconds';
   static const supportedPollingIntervals = <int>[3, 30, 60, 120];
 
@@ -15,13 +27,25 @@ class HomeController extends GetxController {
   /// serileştirmesi arayüzü kilitliyor; son [_maxEvents] kayıt yeterli.
   static const _maxEvents = 200;
 
+  /// Günlük sayaçların kaç gün geriye saklandığı. Toplam sayaç bundan
+  /// etkilenmez; o hiç kırpılmaz.
+  static const retainedStatDays = 90;
+
   final events = <Map<String, String>>[].obs;
   final state = 'Bağlanıyor'.obs;
   final isPolling = false.obs;
   final pollingIntervalSeconds = 60.obs;
   final lastSuccessfulSync = Rxn<DateTime>();
+
+  /// Toplam sayaçlar artık listeden türetilmiyor: liste [_maxEvents] kaydda
+  /// kırpıldığı için sayaç 200'de takılıp kalıyordu. Bunlar kalıcı olarak
+  /// diskte birikir ve yalnızca kullanıcı silerse azalır.
   final sentCount = 0.obs;
   final failedCount = 0.obs;
+
+  /// Gün anahtarı (`yyyy-MM-dd`) -> {'sent': n, 'failed': n}
+  final dailyStats = <String, Map<String, int>>{}.obs;
+
   final _storage = GetStorage();
   Timer? _timer;
   Timer? _heartbeatTimer;
@@ -34,6 +58,35 @@ class HomeController extends GetxController {
   final SmsGatewayService _gateway = SmsGatewayService();
   bool get isConfigured => _gateway.isConfigured;
 
+  static String dayKey(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+
+  /// Gün bazında özet, yeniden eskiye sıralı.
+  List<DayStat> get dailyBreakdown {
+    final keys = dailyStats.keys.toList()..sort((a, b) => b.compareTo(a));
+    return [
+      for (final key in keys)
+        DayStat(
+          day: DateTime.parse(key),
+          sent: dailyStats[key]?['sent'] ?? 0,
+          failed: dailyStats[key]?['failed'] ?? 0,
+        ),
+    ];
+  }
+
+  DayStat statForKey(String key) => DayStat(
+        day: DateTime.parse(key),
+        sent: dailyStats[key]?['sent'] ?? 0,
+        failed: dailyStats[key]?['failed'] ?? 0,
+      );
+
+  DayStat get todayStat => statForKey(dayKey(DateTime.now()));
+
+  DayStat get yesterdayStat =>
+      statForKey(dayKey(DateTime.now().subtract(const Duration(days: 1))));
+
   @override
   void onInit() {
     super.onInit();
@@ -42,7 +95,7 @@ class HomeController extends GetxController {
         .map((item) => Map<String, String>.from(item as Map))
         .where((item) => item.containsKey('phone'))
         .take(_maxEvents));
-    _recountStats();
+    _loadStats();
     _persistEvents();
     final savedInterval = _storage.read<int>(_pollingIntervalKey) ?? 3;
     pollingIntervalSeconds.value =
@@ -52,6 +105,63 @@ class HomeController extends GetxController {
     } else {
       state.value = 'Bağlantı ayarları gerekli';
     }
+  }
+
+  /// Kalıcı sayaçları okur. İlk kez çalışıyorsa (eski sürümden gelen kurulum)
+  /// eldeki kayıtlardan bir başlangıç değeri üretir.
+  void _loadStats() {
+    final raw = _storage.read<Map>(_statsKey);
+    if (raw == null) {
+      _seedStatsFromEvents();
+      return;
+    }
+    sentCount.value = (raw['sent'] as num?)?.toInt() ?? 0;
+    failedCount.value = (raw['failed'] as num?)?.toInt() ?? 0;
+    final daily = raw['daily'];
+    if (daily is Map) {
+      dailyStats.assignAll({
+        for (final entry in daily.entries)
+          if (entry.value is Map)
+            entry.key.toString(): {
+              'sent': ((entry.value as Map)['sent'] as num?)?.toInt() ?? 0,
+              'failed': ((entry.value as Map)['failed'] as num?)?.toInt() ?? 0,
+            },
+      });
+    }
+    // Gunluk dokum bos ama elde kayit varsa (eski surumden gelen kurulum ya da
+    // yarim kalmis bir yazma) gunleri kayitlardan yeniden kur.
+    if (dailyStats.isEmpty && events.isNotEmpty) _seedStatsFromEvents();
+  }
+
+  void _seedStatsFromEvents() {
+    var sent = 0;
+    var failed = 0;
+    final daily = <String, Map<String, int>>{};
+    for (final event in events) {
+      final status = event['status'];
+      if (status != 'sent' && status != 'failed') continue;
+      if (status == 'sent') {
+        sent++;
+      } else {
+        failed++;
+      }
+      final key = _eventDayKey(event);
+      final bucket = daily.putIfAbsent(key, () => {'sent': 0, 'failed': 0});
+      bucket[status!] = (bucket[status] ?? 0) + 1;
+    }
+    // Toplam sayac kayit listesinden buyuk olabilir (liste 200'de kirpiliyor);
+    // tohumlama onu asla geriye cekmemeli.
+    if (sent > sentCount.value) sentCount.value = sent;
+    if (failed > failedCount.value) failedCount.value = failed;
+    dailyStats.assignAll(daily);
+    _persistStats();
+  }
+
+  /// Kaydın `time` alanı `yyyy-MM-dd HH:mm:ss` biçiminde; ilk 10 karakter gün.
+  static String _eventDayKey(Map<String, String> event) {
+    final time = event['time'];
+    if (time != null && time.length >= 10) return time.substring(0, 10);
+    return dayKey(DateTime.now());
   }
 
   Future<void> start() async {
@@ -140,33 +250,57 @@ class HomeController extends GetxController {
 
   void addEvent(String phone, String otp, String status) {
     if (kDebugMode) _printOtpResult(phone: phone, otp: otp, status: status);
+    final now = DateTime.now().toLocal();
     events.insert(0, {
       'phone': phone,
       'otp': otp,
       'status': status,
-      'time': DateTime.now().toLocal().toString().substring(0, 19)
+      'time': now.toString().substring(0, 19)
     });
     if (events.length > _maxEvents) {
       events.removeRange(_maxEvents, events.length);
     }
-    _recountStats();
+    _bumpStat(status, dayKey(now), 1);
     _persistEvents();
   }
 
-  /// Sayaçları listeyle birlikte bir kez güncelliyoruz; aksi halde her kare
-  /// yeniden çiziminde tüm liste iki kez taranıyordu.
-  void _recountStats() {
-    var sent = 0;
-    var failed = 0;
-    for (final event in events) {
-      if (event['status'] == 'sent') {
-        sent++;
-      } else if (event['status'] == 'failed') {
-        failed++;
-      }
+  /// Toplam ve günlük sayaçları [delta] kadar ilerletir (silmede -1).
+  void _bumpStat(String? status, String key, int delta) {
+    if (status != 'sent' && status != 'failed') return;
+    if (status == 'sent') {
+      sentCount.value = (sentCount.value + delta).clamp(0, 1 << 52);
+    } else {
+      failedCount.value = (failedCount.value + delta).clamp(0, 1 << 52);
     }
-    sentCount.value = sent;
-    failedCount.value = failed;
+    final bucket = {...?dailyStats[key]};
+    bucket['sent'] ??= 0;
+    bucket['failed'] ??= 0;
+    bucket[status!] = ((bucket[status] ?? 0) + delta).clamp(0, 1 << 52);
+    if (bucket['sent'] == 0 && bucket['failed'] == 0) {
+      dailyStats.remove(key);
+    } else {
+      dailyStats[key] = bucket;
+    }
+    _trimDailyStats();
+  }
+
+  void _trimDailyStats() {
+    if (dailyStats.length <= retainedStatDays) return;
+    final oldestFirst = dailyStats.keys.toList()..sort();
+    for (final key in oldestFirst.take(dailyStats.length - retainedStatDays)) {
+      dailyStats.remove(key);
+    }
+  }
+
+  void _persistStats() {
+    _storage.write(_statsKey, {
+      'sent': sentCount.value,
+      'failed': failedCount.value,
+      'daily': {
+        for (final entry in dailyStats.entries)
+          entry.key: Map<String, int>.from(entry.value),
+      },
+    });
   }
 
   /// Disk yazımını kısa bir süre geciktirip toplu yapıyoruz: art arda gelen
@@ -175,6 +309,7 @@ class HomeController extends GetxController {
     _persistTimer?.cancel();
     _persistTimer = Timer(const Duration(milliseconds: 400), () {
       _storage.write(_eventsKey, events.toList());
+      _persistStats();
     });
   }
 
@@ -203,14 +338,18 @@ class HomeController extends GetxController {
 
   void deleteEvent(int index) {
     if (index < 0 || index >= events.length) return;
+    final event = events[index];
     events.removeAt(index);
-    _recountStats();
+    _bumpStat(event['status'], _eventDayKey(event), -1);
     _persistEvents();
   }
 
   void clearEvents() {
     events.clear();
-    _recountStats();
+    sentCount.value = 0;
+    failedCount.value = 0;
+    dailyStats.clear();
+    _persistStats();
     _persistEvents();
   }
 
@@ -220,6 +359,7 @@ class HomeController extends GetxController {
     _heartbeatTimer?.cancel();
     _persistTimer?.cancel();
     _storage.write(_eventsKey, events.toList());
+    _persistStats();
     _gateway.dispose();
     super.onClose();
   }
